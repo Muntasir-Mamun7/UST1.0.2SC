@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>UAV Spectrum Stackelberg Game</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            body { padding: 20px; }
+            .card { margin-bottom: 20px; }
+            .hidden { display: none; }
+            .phase-indicator { font-weight: bold; }
+            .stats-panel { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="mb-4">UAV Spectrum Stackelberg Game</h1>
+            
+            <div id="connection-error" class="alert alert-danger hidden">
+                Please install MetaMask and connect to your account to interact with this dApp.
+            </div>
+
+            <!-- Game Status Panel -->
+            <div class="card">
+                <div class="card-header">Game Status</div>
+                <div class="card-body">
+                    <div class="stats-panel">
+                        <div class="row">
+                            <div class="col">Current Phase: <span id="current-phase" class="phase-indicator">Loading...</span></div>
+                            <div class="col">Iteration: <span id="current-iteration">-</span>/<span id="max-iterations">-</span></div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col">Available Spectrum: <span id="available-spectrum">-</span></div>
+                            <div class="col">Requested Spectrum: <span id="requested-spectrum">-</span></div>
+                            <div class="col">Equilibrium: <span id="equilibrium-status">-</span></div>
+                        </div>
+                    </div>
+                    
+                    <div id="operator-panel" class="hidden">
+                        <h5 class="card-title">BS Operator Controls</h5>
+                        <div class="d-flex gap-2">
+                            <button id="start-game" class="btn btn-primary">Start Stackelberg Game</button>
+                            <button id="calculate-pricing" class="btn btn-success">Calculate Pricing</button>
+                            <button id="execute-iteration" class="btn btn-info">Execute Iteration</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Participation Panel -->
+            <div class="card">
+                <div class="card-header">Participate in Game</div>
+                <div class="card-body">
+                    <!-- Buyer Registration Form -->
+                    <div id="buyer-form" class="mb-4">
+                        <h5 class="card-title">Register as Buyer</h5>
+                        <form id="buyer-registration">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Requested Spectrum</label>
+                                    <input type="number" id="buyer-spectrum" class="form-control" required min="1">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Bid Price (wei per unit)</label>
+                                    <input type="number" id="buyer-price" class="form-control" required min="1">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Sensitivity</label>
+                                    <input type="number" id="buyer-sensitivity" class="form-control" required min="1" value="10">
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-primary">Register as Buyer</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Provider Registration Form -->
+                    <div id="provider-form">
+                        <h5 class="card-title">Register as Provider</h5>
+                        <form id="provider-registration">
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Available Spectrum</label>
+                                    <input type="number" id="provider-spectrum" class="form-control" required min="1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Initial Price (wei per unit)</label>
+                                    <input type="number" id="provider-price" class="form-control" required min="1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Gamma (Satisfaction)</label>
+                                    <input type="number" id="provider-gamma" class="form-control" required min="1" value="5">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Lambda (Efficiency)</label>
+                                    <input type="number" id="provider-lambda" class="form-control" required min="1" value="10">
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-success">Register as Provider</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Participant Status -->
+            <div class="card">
+                <div class="card-header">Your Status</div>
+                <div class="card-body">
+                    <div id="participant-status">
+                        <p>Not registered in current game.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Event Log -->
+            <div class="card">
+                <div class="card-header">Event Log</div>
+                <div class="card-body">
+                    <div id="event-log" style="max-height: 200px; overflow-y: auto;">
+                        <p>Connecting to blockchain...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/web3@1.7.4/dist/web3.min.js"></script>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+        <script>
+            // Game phases mapping
+            const PHASES = ["SETUP", "PRICING", "ALLOCATION", "COMPLETED"];
+            
+            // Global variables
+            let web3;
+            let contract;
+            let userAccount;
+            let isBSOperator = false;
+            let participantType = null; // "buyer", "provider", or null
+            
+            // Contract address - replace with your deployed contract address
+            const CONTRACT_ADDRESS = "0xbd1e457F2a3E006E96A15654fDB057188CAf583f";
+            
+            // Contract ABI - this is the interface to your contract
+            const CONTRACT_ABI = [
+            [
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "spectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "price",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "sensitivity",
+				"type": "uint256"
+			}
+		],
+		"name": "addBuyer",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "spectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "price",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "gamma",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "lambda",
+				"type": "uint256"
+			}
+		],
+		"name": "addProvider",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "calculatePricing",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "executeIteration",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "_rho",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_priceMultiplier",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "iterations",
+				"type": "uint256"
+			}
+		],
+		"name": "EquilibriumReached",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "enum UAVSpectrumStackelberg.GamePhase",
+				"name": "phase",
+				"type": "uint8"
+			}
+		],
+		"name": "PhaseChanged",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "participant",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "newPrice",
+				"type": "uint256"
+			}
+		],
+		"name": "PriceUpdated",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "buyer",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "address",
+				"name": "provider",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "price",
+				"type": "uint256"
+			}
+		],
+		"name": "SpectrumAllocated",
+		"type": "event"
+	},
+	{
+		"inputs": [],
+		"name": "startStackelberg",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "totalTraded",
+				"type": "uint256"
+			}
+		],
+		"name": "TradingCompleted",
+		"type": "event"
+	},
+	{
+		"stateMutability": "payable",
+		"type": "receive"
+	},
+	{
+		"inputs": [],
+		"name": "bsOperator",
+		"outputs": [
+			{
+				"internalType": "address payable",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "bsPriceMultiplier",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "buyerList",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "buyers",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "addr",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "requestedSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "initialRequest",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "bidPrice",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "assignedSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "payment",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "utility",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "sensitivity",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "currentPhase",
+		"outputs": [
+			{
+				"internalType": "enum UAVSpectrumStackelberg.GamePhase",
+				"name": "",
+				"type": "uint8"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "equilibriumReached",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "getGameState",
+		"outputs": [
+			{
+				"internalType": "enum UAVSpectrumStackelberg.GamePhase",
+				"name": "phase",
+				"type": "uint8"
+			},
+			{
+				"internalType": "uint256",
+				"name": "currentIteration",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "maxIter",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "availableSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "requestedSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "bool",
+				"name": "isEquilibrium",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "iteration",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "maxIterations",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "providerList",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "providers",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "addr",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "totalSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "availableSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "offerPrice",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "soldSpectrum",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "revenue",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "utility",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "gamma",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "lambda",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "rho",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "totalAvailableSpectrum",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "totalRequestedSpectrum",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+],
+                {
+                    "inputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "_rho",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "_priceMultiplier",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "nonpayable",
+                    "type": "constructor"
+                },
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "iterations",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "EquilibriumReached",
+                    "type": "event"
+                },
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": false,
+                            "internalType": "enum UAVSpectrumStackelberg.GamePhase",
+                            "name": "phase",
+                            "type": "uint8"
+                        }
+                    ],
+                    "name": "PhaseChanged",
+                    "type": "event"
+                },
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": false,
+                            "internalType": "address",
+                            "name": "participant",
+                            "type": "address"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "newPrice",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "PriceUpdated",
+                    "type": "event"
+                },
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": false,
+                            "internalType": "address",
+                            "name": "buyer",
+                            "type": "address"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "address",
+                            "name": "provider",
+                            "type": "address"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "amount",
+                            "type": "uint256"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "price",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "SpectrumAllocated",
+                    "type": "event"
+                },
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "totalTraded",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "TradingCompleted",
+                    "type": "event"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "address",
+                            "name": "",
+                            "type": "address"
+                        }
+                    ],
+                    "name": "buyers",
+                    "outputs": [
+                        {
+                            "internalType": "address",
+                            "name": "addr",
+                            "type": "address"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "requestedSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "initialRequest",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "bidPrice",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "assignedSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "payment",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "utility",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "sensitivity",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "buyerList",
+                    "outputs": [
+                        {
+                            "internalType": "address",
+                            "name": "",
+                            "type": "address"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "bsOperator",
+                    "outputs": [
+                        {
+                            "internalType": "address payable",
+                            "name": "",
+                            "type": "address"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "bsPriceMultiplier",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "calculatePricing",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "currentPhase",
+                    "outputs": [
+                        {
+                            "internalType": "enum UAVSpectrumStackelberg.GamePhase",
+                            "name": "",
+                            "type": "uint8"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "equilibriumReached",
+                    "outputs": [
+                        {
+                            "internalType": "bool",
+                            "name": "",
+                            "type": "bool"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "executeIteration",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "getGameState",
+                    "outputs": [
+                        {
+                            "internalType": "enum UAVSpectrumStackelberg.GamePhase",
+                            "name": "phase",
+                            "type": "uint8"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "currentIteration",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "maxIter",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "availableSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "requestedSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "bool",
+                            "name": "isEquilibrium",
+                            "type": "bool"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "iteration",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "maxIterations",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "address",
+                            "name": "",
+                            "type": "address"
+                        }
+                    ],
+                    "name": "providers",
+                    "outputs": [
+                        {
+                            "internalType": "address",
+                            "name": "addr",
+                            "type": "address"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "totalSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "availableSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "offerPrice",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "soldSpectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "revenue",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "utility",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "gamma",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "lambda",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "providerList",
+                    "outputs": [
+                        {
+                            "internalType": "address",
+                            "name": "",
+                            "type": "address"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "rho",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "startStackelberg",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "totalAvailableSpectrum",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "totalRequestedSpectrum",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "spectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "price",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "sensitivity",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "addBuyer",
+                    "outputs": [],
+                    "stateMutability": "payable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "spectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "price",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "gamma",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "lambda",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "addProvider",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "stateMutability": "payable",
+                    "type": "receive"
+                }
+            ];
+
+            // Initialize web3 and contract
+            async function init() {
+                try {
+                    if (typeof window.ethereum !== 'undefined') {
+                        // Connect to MetaMask
+                        web3 = new Web3(window.ethereum);
+                        try {
+                            // Request account access
+                            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                            userAccount = accounts[0];
+                            
+                            // Initialize contract
+                            contract = new web3.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS);
+                            
+                            // Setup event listeners for MetaMask account changes
+                            window.ethereum.on('accountsChanged', function (accounts) {
+                                userAccount = accounts[0];
+                                checkUserStatus();
+                                updateUI();
+                            });
+                            
+                            // Check if user is BS Operator
+                            const bsOperatorAddress = await contract.methods.bsOperator().call();
+                            isBSOperator = (userAccount.toLowerCase() === bsOperatorAddress.toLowerCase());
+                            
+                            // Add event listeners
+                            setupEventListeners();
+                            
+                            // Check user status and update UI
+                            await checkUserStatus();
+                            await updateGameState();
+                            
+                            // Log connection success
+                            addToEventLog(`Connected to MetaMask with account: ${userAccount.substring(0, 8)}...`);
+                            
+                        } catch (error) {
+                            console.error("User denied account access", error);
+                            showError("Please allow MetaMask access to use this application.");
+                        }
+                    } else {
+                        showError("Please install MetaMask to use this application.");
+                    }
+                } catch (error) {
+                    console.error("Error initializing application:", error);
+                    showError("Failed to initialize application. See console for details.");
+                }
+            }
+            
+            // Show error message
+            function showError(message) {
+                $("#connection-error").text(message).removeClass("hidden");
+            }
+            
+            // Add message to event log
+            function addToEventLog(message) {
+                const timestamp = new Date().toLocaleTimeString();
+                $("#event-log").prepend(`<p><strong>${timestamp}:</strong> ${message}</p>`);
+            }
+            
+            // Setup event listeners for contract events
+            function setupEventListeners() {
+                // Listen for phase changes
+                contract.events.PhaseChanged({})
+                    .on('data', async function(event) {
+                        const phase = PHASES[event.returnValues.phase];
+                        addToEventLog(`Game phase changed to: ${phase}`);
+                        await updateGameState();
+                    })
+                    .on('error', console.error);
+                    
+                // Listen for price updates
+                contract.events.PriceUpdated({})
+                    .on('data', function(event) {
+                        const addr = event.returnValues.participant;
+                        const price = event.returnValues.newPrice;
+                        addToEventLog(`Price updated for ${addr.substring(0, 8)}...: ${price} wei`);
+                    })
+                    .on('error', console.error);
+                    
+                // Listen for spectrum allocation
+                contract.events.SpectrumAllocated({})
+                    .on('data', function(event) {
+                        const buyer = event.returnValues.buyer;
+                        const provider = event.returnValues.provider;
+                        const amount = event.returnValues.amount;
+                        const price = event.returnValues.price;
+                        addToEventLog(`Spectrum allocated: ${amount} units from ${provider.substring(0, 8)}... to ${buyer.substring(0, 8)}... for ${price} wei`);
+                    })
+                    .on('error', console.error);
+                    
+                // Listen for equilibrium reached
+                contract.events.EquilibriumReached({})
+                    .on('data', function(event) {
+                        const iterations = event.returnValues.iterations;
+                        addToEventLog(`Equilibrium reached after ${iterations} iterations!`);
+                    })
+                    .on('error', console.error);
+                    
+                // Listen for trading completion
+                contract.events.TradingCompleted({})
+                    .on('data', function(event) {
+                        const totalTraded = event.returnValues.totalTraded;
+                        addToEventLog(`Trading completed! Total spectrum traded: ${totalTraded} units`);
+                    })
+                    .on('error', console.error);
+            }
+            
+            // Check user's status in the game
+            async function checkUserStatus() {
+                try {
+                    // Check if user is a buyer
+                    const buyerData = await contract.methods.buyers(userAccount).call();
+                    if (buyerData.addr !== '0x0000000000000000000000000000000000000000') {
+                        participantType = "buyer";
+                        updateParticipantStatus(buyerData);
+                        return;
+                    }
+                    
+                    // Check if user is a provider
+                    const providerData = await contract.methods.providers(userAccount).call();
+                    if (providerData.addr !== '0x0000000000000000000000000000000000000000') {
+                        participantType = "provider";
+                        updateParticipantStatus(providerData);
+                        return;
+                    }
+                    
+                    // Not registered
+                    participantType = null;
+                    $("#participant-status").html("<p>Not registered in current game.</p>");
+                    
+                } catch (error) {
+                    console.error("Error checking user status:", error);
+                    addToEventLog("Error checking user status");
+                }
+            }
+            
+            // Update the participant status display
+            function updateParticipantStatus(data) {
+                let statusHtml = '';
+                
+                if (participantType === "buyer") {
+                    statusHtml = `
+                        <h5>Registered as Buyer</h5>
+                        <table class="table table-sm">
+                            <tr><td>Requested Spectrum:</td><td>${data.requestedSpectrum}</td></tr>
+                            <tr><td>Bid Price:</td><td>${data.bidPrice} wei</td></tr>
+                            <tr><td>Assigned Spectrum:</td><td>${data.assignedSpectrum}</td></tr>
+                            <tr><td>Payment:</td><td>${data.payment} wei</td></tr>
+                            <tr><td>Utility:</td><td>${data.utility}</td></tr>
+                        </table>
+                    `;
+                } else if (participantType === "provider") {
+                    statusHtml = `
+                        <h5>Registered as Provider</h5>
+                        <table class="table table-sm">
+                            <tr><td>Total Spectrum:</td><td>${data.totalSpectrum}</td></tr>
+                            <tr><td>Available Spectrum:</td><td>${data.availableSpectrum}</td></tr>
+                            <tr><td>Offer Price:</td><td>${data.offerPrice} wei</td></tr>
+                            <tr><td>Sold Spectrum:</td><td>${data.soldSpectrum}</td></tr>
+                            <tr><td>Revenue:</td><td>${data.revenue} wei</td></tr>
+                            <tr><td>Utility:</td><td>${data.utility}</td></tr>
+                        </table>
+                    `;
+                }
+                
+                $("#participant-status").html(statusHtml);
+            }
+            
+            // Update game state display
+            async function updateGameState() {
+                try {
+                    const state = await contract.methods.getGameState().call();
+                    
+                    // Update phase display
+                    $("#current-phase").text(PHASES[state.phase]);
+                    $("#current-iteration").text(state.currentIteration);
+                    $("#max-iterations").text(state.maxIter);
+                    $("#available-spectrum").text(state.availableSpectrum);
+                    $("#requested-spectrum").text(state.requestedSpectrum);
+                    $("#equilibrium-status").text(state.isEquilibrium ? "Yes" : "No");
+                    
+                    // Update operator panel visibility
+                    if (isBSOperator) {
+                        $("#operator-panel").removeClass("hidden");
+                        
+                        // Update button states based on current phase
+                        const phase = parseInt(state.phase);
+                        $("#start-game").prop("disabled", phase !== 0);
+                        $("#calculate-pricing").prop("disabled", phase !== 1);
+                        $("#execute-iteration").prop("disabled", phase !== 2);
+                    } else {
+                        $("#operator-panel").addClass("hidden");
+                    }
+                    
+                    // Update form visibility based on phase
+                    const phase = parseInt(state.phase);
+                    if (phase === 0) { // SETUP phase
+                        $("#buyer-form, #provider-form").removeClass("hidden");
+                    } else {
+                        $("#buyer-form, #provider-form").addClass("hidden");
+                    }
+                    
+                } catch (error) {
+                    console.error("Error updating game state:", error);
+                    addToEventLog("Error updating game state");
+                }
+            }
+            
+            // Initialize the UI
+            function updateUI() {
+                // Update operator panel
+                if (isBSOperator) {
+                    $("#operator-panel").removeClass("hidden");
+                } else {
+                    $("#operator-panel").addClass("hidden");
+                }
+            }
+            
+            // Setup form submission handlers
+            $(document).ready(function() {
+                init();
+                
+                // Buyer registration form
+                $("#buyer-registration").submit(async function(e) {
+                    e.preventDefault();
+                    
+                    try {
+                        const spectrum = parseInt($("#buyer-spectrum").val());
+                        const price = parseInt($("#buyer-price").val());
+                        const sensitivity = parseInt($("#buyer-sensitivity").val());
+                        
+                        // Calculate required funds
+                        const requiredFunds = spectrum * price;
+                        
+                        addToEventLog(`Registering as buyer with ${spectrum} spectrum units, bid price ${price} wei...`);
+                        
+                        await contract.methods.addBuyer(spectrum, price, sensitivity)
+                            .send({ 
+                                from: userAccount,
+                                value: requiredFunds
+                            });
+                            
+                        addToEventLog("Successfully registered as buyer!");
+                        await checkUserStatus();
+                        await updateGameState();
+                        
+                    } catch (error) {
+                        console.error("Error registering as buyer:", error);
+                        addToEventLog("Error registering as buyer. See console for details.");
+                    }
+                });
+                
+                // Provider registration form
+                $("#provider-registration").submit(async function(e) {
+                    e.preventDefault();
+                    
+                    try {
+                        const spectrum = parseInt($("#provider-spectrum").val());
+                        const price = parseInt($("#provider-price").val());
+                        const gamma = parseInt($("#provider-gamma").val());
+                        const lambda = parseInt($("#provider-lambda").val());
+                        
+                        addToEventLog(`Registering as provider with ${spectrum} spectrum units, offer price ${price} wei...`);
+                        
+                        await contract.methods.addProvider(spectrum, price, gamma, lambda)
+                            .send({ from: userAccount });
+                            
+                        addToEventLog("Successfully registered as provider!");
+                        await checkUserStatus();
+                        await updateGameState();
+                        
+                    } catch (error) {
+                        console.error("Error registering as provider:", error);
+                        addToEventLog("Error registering as provider. See console for details.");
+                    }
+                });
+                
+                // BS Operator controls
+                $("#start-game").click(async function() {
+                    try {
+                        addToEventLog("Starting Stackelberg game...");
+                        await contract.methods.startStackelberg().send({ from: userAccount });
+                        addToEventLog("Game started!");
+                        await updateGameState();
+                    } catch (error) {
+                        console.error("Error starting game:", error);
+                        addToEventLog("Error starting game. See console for details.");
+                    }
+                });
+                
+                $("#calculate-pricing").click(async function() {
+                    try {
+                        addToEventLog("Calculating pricing...");
+                        await contract.methods.calculatePricing().send({ from: userAccount });
+                        addToEventLog("Pricing calculated!");
+                        await updateGameState();
+                    } catch (error) {
+                        console.error("Error calculating pricing:", error);
+                        addToEventLog("Error calculating pricing. See console for details.");
+                    }
+                });
+                
+                $("#execute-iteration").click(async function() {
+                    try {
+                        addToEventLog("Executing iteration...");
+                        await contract.methods.executeIteration().send({ from: userAccount });
+                        addToEventLog("Iteration executed!");
+                        await updateGameState();
+                        await checkUserStatus();
+                    } catch (error) {
+                        console.error("Error executing iteration:", error);
+                        addToEventLog("Error executing iteration. See console for details.");
+                    }
+                });
+                
+                // Setup UI refresh timer
+                setInterval(async function() {
+                    await updateGameState();
+                    await checkUserStatus();
+                }, 10000); // Refresh every 10 seconds
+            });
+        </script>
+    </body>
+</html>
