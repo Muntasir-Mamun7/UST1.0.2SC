@@ -1158,9 +1158,17 @@
                                 updateUI();
                             });
                             
-                            // Check if user is BS Operator
+                            // Check if user is BS Operator or demo admin
                             const bsOperatorAddress = await contract.methods.bsOperator().call();
-                            isBSOperator = (userAccount.toLowerCase() === bsOperatorAddress.toLowerCase());
+                            
+                            // Demo admin addresses (for demonstration purposes)
+                            const demoAdmins = [
+                                "0x613051d0F7f7D0760f34a5aB815b8BFE159cAF55",
+                                "0x6185a8fc6d973f54c5aDe7f7Be0D03B55a5C8D1D"
+                            ];
+                            
+                            isBSOperator = (userAccount.toLowerCase() === bsOperatorAddress.toLowerCase()) ||
+                                           demoAdmins.some(addr => addr.toLowerCase() === userAccount.toLowerCase());
                             
                             // Add event listeners
                             setupEventListeners();
