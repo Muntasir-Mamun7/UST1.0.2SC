@@ -9,22 +9,37 @@
             .hidden { display: none; }
             .phase-indicator { font-weight: bold; }
             .stats-panel { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+            .btn-reset {
+                background-color: #858796;
+                border-color: #858796;
+                color: white;
+            }
+            .btn-reset:hover {
+                background-color: #6e707e;
+                border-color: #6e707e;
+                color: white;
+            }
+            .phase-badge {
+                padding: 8px 15px;
+                border-radius: 20px;
+                font-weight: 600;
+                font-size: 0.9rem;
+            }
+            .phase-setup { background-color: #28a745; color: white; }
+            .phase-pricing { background-color: #ffc107; color: black; }
+            .phase-allocation { background-color: #17a2b8; color: white; }
+            .phase-completed { background-color: #dc3545; color: white; }
         </style>
     </head>
     <body>
         <div style="display: flex; align-items: flex-start;padding-top: 10px;">
             <!-- Left Section: Image + Heading + Text Below -->
-            <div style="flex: 0 0 auto; width: 400px; padding: 10px;padding-top:px">
-                <!-- Heading Above the Image -->
-                
-        
+            <div style="flex: 0 0 auto; width: 400px; padding: 10px;padding-top:0px">
                 <!-- Image -->
                 <img src="UST.png" alt="UTS Logo" style="max-width: 100%; height: auto;">
         
                 <!-- Text Below the Image -->
-                <h1 style="font-size: 18px; margin: 0; text-align: left;">UAV spectrum trading system model
-    
-                </h1>
+                <h1 style="font-size: 18px; margin: 0; text-align: left;">UAV spectrum trading system model</h1>
             </div>
         <div class="container">
             <h1 class="mb-4">UAV Spectrum Stackelberg Game</h1>
@@ -39,7 +54,9 @@
                 <div class="card-body">
                     <div class="stats-panel">
                         <div class="row">
-                            <div class="col">Current Phase: <span id="current-phase" class="phase-indicator">Loading...</span></div>
+                            <div class="col">
+                                Current Phase: <span id="current-phase" class="phase-badge phase-setup">Loading...</span>
+                            </div>
                             <div class="col">Iteration: <span id="current-iteration">-</span>/<span id="max-iterations">-</span></div>
                         </div>
                         <div class="row mt-2">
@@ -51,11 +68,13 @@
                     
                     <div id="operator-panel" class="hidden">
                         <h5 class="card-title">BS Operator Controls</h5>
-                        <div class="d-flex gap-2">
+                        <div class="d-flex gap-2 flex-wrap">
                             <button id="start-game" class="btn btn-primary">Start Stackelberg Game</button>
                             <button id="calculate-pricing" class="btn btn-success">Calculate Pricing</button>
                             <button id="execute-iteration" class="btn btn-info">Execute Iteration</button>
+                            <button id="reset-game" class="btn btn-reset hidden">Reset Game</button>
                         </div>
+                        <div id="admin-message" class="mt-3"></div>
                     </div>
                 </div>
             </div>
@@ -153,501 +172,13 @@
             let userAccount;
             let isBSOperator = false;
             let participantType = null; // "buyer", "provider", or null
+            let currentPhase = 0;
             
             // Contract address - replace with your deployed contract address
-            const CONTRACT_ADDRESS = "0xBD10E42b59CB3dE87E26E6B5963385b22463285D";
+            const CONTRACT_ADDRESS = "0x0A5a64F6f2910D9DC8343098f78Db6B7d6b3Ca60";
             
-            // Contract ABI - this is the interface to your contract
+            // Contract ABI - Updated with reset function
             const CONTRACT_ABI = [
-            [
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "spectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "price",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "sensitivity",
-				"type": "uint256"
-			}
-		],
-		"name": "addBuyer",
-		"outputs": [],
-		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "spectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "price",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "gamma",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "lambda",
-				"type": "uint256"
-			}
-		],
-		"name": "addProvider",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "calculatePricing",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "executeIteration",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "_rho",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "_priceMultiplier",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "iterations",
-				"type": "uint256"
-			}
-		],
-		"name": "EquilibriumReached",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "enum UAVSpectrumStackelberg.GamePhase",
-				"name": "phase",
-				"type": "uint8"
-			}
-		],
-		"name": "PhaseChanged",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "participant",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "newPrice",
-				"type": "uint256"
-			}
-		],
-		"name": "PriceUpdated",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "buyer",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "address",
-				"name": "provider",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			},
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "price",
-				"type": "uint256"
-			}
-		],
-		"name": "SpectrumAllocated",
-		"type": "event"
-	},
-	{
-		"inputs": [],
-		"name": "startStackelberg",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
-				"indexed": false,
-				"internalType": "uint256",
-				"name": "totalTraded",
-				"type": "uint256"
-			}
-		],
-		"name": "TradingCompleted",
-		"type": "event"
-	},
-	{
-		"stateMutability": "payable",
-		"type": "receive"
-	},
-	{
-		"inputs": [],
-		"name": "bsOperator",
-		"outputs": [
-			{
-				"internalType": "address payable",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "bsPriceMultiplier",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"name": "buyerList",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"name": "buyers",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "addr",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "requestedSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "initialRequest",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "bidPrice",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "assignedSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "payment",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "utility",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "sensitivity",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "currentPhase",
-		"outputs": [
-			{
-				"internalType": "enum UAVSpectrumStackelberg.GamePhase",
-				"name": "",
-				"type": "uint8"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "equilibriumReached",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getGameState",
-		"outputs": [
-			{
-				"internalType": "enum UAVSpectrumStackelberg.GamePhase",
-				"name": "phase",
-				"type": "uint8"
-			},
-			{
-				"internalType": "uint256",
-				"name": "currentIteration",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "maxIter",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "availableSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "requestedSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bool",
-				"name": "isEquilibrium",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "iteration",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "maxIterations",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"name": "providerList",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"name": "providers",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "addr",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "totalSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "availableSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "offerPrice",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "soldSpectrum",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "revenue",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "utility",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "gamma",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "lambda",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "rho",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "totalAvailableSpectrum",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "totalRequestedSpectrum",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	}
-],
                 {
                     "inputs": [
                         {
@@ -675,6 +206,25 @@
                         }
                     ],
                     "name": "EquilibriumReached",
+                    "type": "event"
+                },
+                {
+                    "anonymous": false,
+                    "inputs": [
+                        {
+                            "indexed": false,
+                            "internalType": "uint256",
+                            "name": "timestamp",
+                            "type": "uint256"
+                        },
+                        {
+                            "indexed": false,
+                            "internalType": "address",
+                            "name": "resetBy",
+                            "type": "address"
+                        }
+                    ],
+                    "name": "GameReset",
                     "type": "event"
                 },
                 {
@@ -756,6 +306,83 @@
                 {
                     "inputs": [
                         {
+                            "internalType": "uint256",
+                            "name": "spectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "price",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "sensitivity",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "addBuyer",
+                    "outputs": [],
+                    "stateMutability": "payable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "spectrum",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "price",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "gamma",
+                            "type": "uint256"
+                        },
+                        {
+                            "internalType": "uint256",
+                            "name": "lambda",
+                            "type": "uint256"
+                        }
+                    ],
+                    "name": "addProvider",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "bsOperator",
+                    "outputs": [
+                        {
+                            "internalType": "address payable",
+                            "name": "",
+                            "type": "address"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "bsPriceMultiplier",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
                             "internalType": "address",
                             "name": "",
                             "type": "address"
@@ -828,32 +455,6 @@
                 },
                 {
                     "inputs": [],
-                    "name": "bsOperator",
-                    "outputs": [
-                        {
-                            "internalType": "address payable",
-                            "name": "",
-                            "type": "address"
-                        }
-                    ],
-                    "stateMutability": "view",
-                    "type": "function"
-                },
-                {
-                    "inputs": [],
-                    "name": "bsPriceMultiplier",
-                    "outputs": [
-                        {
-                            "internalType": "uint256",
-                            "name": "",
-                            "type": "uint256"
-                        }
-                    ],
-                    "stateMutability": "view",
-                    "type": "function"
-                },
-                {
-                    "inputs": [],
                     "name": "calculatePricing",
                     "outputs": [],
                     "stateMutability": "nonpayable",
@@ -894,6 +495,19 @@
                 },
                 {
                     "inputs": [],
+                    "name": "getBuyerCount",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
                     "name": "getGameState",
                     "outputs": [
                         {
@@ -924,6 +538,57 @@
                         {
                             "internalType": "bool",
                             "name": "isEquilibrium",
+                            "type": "bool"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
+                    "name": "getProviderCount",
+                    "outputs": [
+                        {
+                            "internalType": "uint256",
+                            "name": "",
+                            "type": "uint256"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "address",
+                            "name": "_addr",
+                            "type": "address"
+                        }
+                    ],
+                    "name": "isBuyer",
+                    "outputs": [
+                        {
+                            "internalType": "bool",
+                            "name": "",
+                            "type": "bool"
+                        }
+                    ],
+                    "stateMutability": "view",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
+                        {
+                            "internalType": "address",
+                            "name": "_addr",
+                            "type": "address"
+                        }
+                    ],
+                    "name": "isProvider",
+                    "outputs": [
+                        {
+                            "internalType": "bool",
+                            "name": "",
                             "type": "bool"
                         }
                     ],
@@ -1036,6 +701,13 @@
                 },
                 {
                     "inputs": [],
+                    "name": "resetGame",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [],
                     "name": "rho",
                     "outputs": [
                         {
@@ -1081,57 +753,6 @@
                     "type": "function"
                 },
                 {
-                    "inputs": [
-                        {
-                            "internalType": "uint256",
-                            "name": "spectrum",
-                            "type": "uint256"
-                        },
-                        {
-                            "internalType": "uint256",
-                            "name": "price",
-                            "type": "uint256"
-                        },
-                        {
-                            "internalType": "uint256",
-                            "name": "sensitivity",
-                            "type": "uint256"
-                        }
-                    ],
-                    "name": "addBuyer",
-                    "outputs": [],
-                    "stateMutability": "payable",
-                    "type": "function"
-                },
-                {
-                    "inputs": [
-                        {
-                            "internalType": "uint256",
-                            "name": "spectrum",
-                            "type": "uint256"
-                        },
-                        {
-                            "internalType": "uint256",
-                            "name": "price",
-                            "type": "uint256"
-                        },
-                        {
-                            "internalType": "uint256",
-                            "name": "gamma",
-                            "type": "uint256"
-                        },
-                        {
-                            "internalType": "uint256",
-                            "name": "lambda",
-                            "type": "uint256"
-                        }
-                    ],
-                    "name": "addProvider",
-                    "outputs": [],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
-                },
-                {
                     "stateMutability": "payable",
                     "type": "receive"
                 }
@@ -1158,17 +779,9 @@
                                 updateUI();
                             });
                             
-                            // Check if user is BS Operator or demo admin
+                            // Check if user is BS Operator
                             const bsOperatorAddress = await contract.methods.bsOperator().call();
-                            
-                            // Demo admin addresses (for demonstration purposes)
-                            const demoAdmins = [
-                                "0x613051d0F7f7D0760f34a5aB815b8BFE159cAF55",
-                                "0x6185a8fc6d973f54c5aDe7f7Be0D03B55a5C8D1D"
-                            ];
-                            
-                            isBSOperator = (userAccount.toLowerCase() === bsOperatorAddress.toLowerCase()) ||
-                                           demoAdmins.some(addr => addr.toLowerCase() === userAccount.toLowerCase());
+                            isBSOperator = (userAccount.toLowerCase() === bsOperatorAddress.toLowerCase());
                             
                             // Add event listeners
                             setupEventListeners();
@@ -1250,6 +863,16 @@
                         addToEventLog(`Trading completed! Total spectrum traded: ${totalTraded} units`);
                     })
                     .on('error', console.error);
+                
+                // Listen for game reset
+                contract.events.GameReset({})
+                    .on('data', async function(event) {
+                        const resetBy = event.returnValues.resetBy;
+                        addToEventLog(`✅ Game reset by ${resetBy.substring(0, 8)}... - Starting new round!`);
+                        await updateGameState();
+                        await checkUserStatus();
+                    })
+                    .on('error', console.error);
             }
             
             // Check user's status in the game
@@ -1313,35 +936,59 @@
                 $("#participant-status").html(statusHtml);
             }
             
+            // Update reset button visibility
+            function updateResetButtonVisibility() {
+                const resetBtn = $("#reset-game");
+                if (isBSOperator && currentPhase === 3) { // COMPLETED phase
+                    resetBtn.removeClass("hidden");
+                } else {
+                    resetBtn.addClass("hidden");
+                }
+            }
+            
             // Update game state display
             async function updateGameState() {
                 try {
                     const state = await contract.methods.getGameState().call();
+                    currentPhase = parseInt(state.phase);
                     
-                    // Update phase display
-                    $("#current-phase").text(PHASES[state.phase]);
+                    // Update phase display with colored badges
+                    const phaseName = PHASES[currentPhase];
+                    let phaseClass = '';
+                    switch(currentPhase) {
+                        case 0: phaseClass = 'phase-setup'; break;
+                        case 1: phaseClass = 'phase-pricing'; break;
+                        case 2: phaseClass = 'phase-allocation'; break;
+                        case 3: phaseClass = 'phase-completed'; break;
+                    }
+                    
+                    $("#current-phase").removeClass('phase-setup phase-pricing phase-allocation phase-completed')
+                                       .addClass(phaseClass)
+                                       .text(phaseName);
+                    
                     $("#current-iteration").text(state.currentIteration);
                     $("#max-iterations").text(state.maxIter);
                     $("#available-spectrum").text(state.availableSpectrum);
                     $("#requested-spectrum").text(state.requestedSpectrum);
                     $("#equilibrium-status").text(state.isEquilibrium ? "Yes" : "No");
                     
+                    // Update reset button visibility
+                    updateResetButtonVisibility();
+                    
                     // Update operator panel visibility
                     if (isBSOperator) {
                         $("#operator-panel").removeClass("hidden");
                         
                         // Update button states based on current phase
-                        const phase = parseInt(state.phase);
-                        $("#start-game").prop("disabled", phase !== 0);
-                        $("#calculate-pricing").prop("disabled", phase !== 1);
-                        $("#execute-iteration").prop("disabled", phase !== 2);
+                        $("#start-game").prop("disabled", currentPhase !== 0);
+                        $("#calculate-pricing").prop("disabled", currentPhase !== 1);
+                        $("#execute-iteration").prop("disabled", currentPhase !== 2);
                     } else {
                         $("#operator-panel").addClass("hidden");
                     }
                     
                     // Update form visibility based on phase
-                    const phase = parseInt(state.phase);
-                    if (phase === 0) { // SETUP phase
+                    if (currentPhase === 0) { // SETUP phase
                         $("#buyer-form, #provider-form").removeClass("hidden");
                     } else {
                         $("#buyer-form, #provider-form").addClass("hidden");
@@ -1360,6 +1007,56 @@
                     $("#operator-panel").removeClass("hidden");
                 } else {
                     $("#operator-panel").addClass("hidden");
+                }
+            }
+            
+            // Reset Game Function
+            async function resetGame() {
+                try {
+                    if (!isBSOperator) {
+                        addToEventLog("Only BS operator can reset the game");
+                        $("#admin-message").html('<div class="alert alert-warning">Only BS operator can reset the game</div>');
+                        return;
+                    }
+                    
+                    if (currentPhase !== 3) {
+                        addToEventLog("Can only reset after game completion");
+                        $("#admin-message").html('<div class="alert alert-warning">Can only reset after game completion</div>');
+                        return;
+                    }
+                    
+                    if (confirm("Are you sure you want to reset the game? This will:\n\n• Refund any remaining contract balance to BS operator\n• Clear all buyers and providers\n• Reset the game to SETUP phase\n\nThis action cannot be undone!")) {
+                        $("#admin-message").html('<div class="alert alert-info">Resetting game... Please wait and confirm in MetaMask.</div>');
+                        addToEventLog("Resetting game...");
+                        
+                        await contract.methods.resetGame().send({ 
+                            from: userAccount,
+                            gas: 3000000 // Higher gas limit for clearing arrays
+                        });
+                        
+                        $("#admin-message").html('<div class="alert alert-success">✅ Game reset successfully! A new round can now begin.</div>');
+                        addToEventLog("Game reset successfully!");
+                        
+                        // Clear local participant type
+                        participantType = null;
+                        
+                        // Refresh all data
+                        await updateGameState();
+                        await checkUserStatus();
+                        
+                        // Clear forms
+                        $("#buyer-registration")[0].reset();
+                        $("#provider-registration")[0].reset();
+                        
+                        // Clear admin message after 5 seconds
+                        setTimeout(() => {
+                            $("#admin-message").html('');
+                        }, 5000);
+                    }
+                } catch (error) {
+                    console.error("Error resetting game:", error);
+                    $("#admin-message").html(`<div class="alert alert-danger">Error resetting game: ${error.message}</div>`);
+                    addToEventLog("Error resetting game. See console for details.");
                 }
             }
             
@@ -1426,11 +1123,18 @@
                 $("#start-game").click(async function() {
                     try {
                         addToEventLog("Starting Stackelberg game...");
+                        $("#admin-message").html('<div class="alert alert-info">Starting game...</div>');
+                        
                         await contract.methods.startStackelberg().send({ from: userAccount });
+                        
                         addToEventLog("Game started!");
+                        $("#admin-message").html('<div class="alert alert-success">Game started successfully!</div>');
                         await updateGameState();
+                        
+                        setTimeout(() => $("#admin-message").html(''), 3000);
                     } catch (error) {
                         console.error("Error starting game:", error);
+                        $("#admin-message").html(`<div class="alert alert-danger">Error: ${error.message}</div>`);
                         addToEventLog("Error starting game. See console for details.");
                     }
                 });
@@ -1438,11 +1142,18 @@
                 $("#calculate-pricing").click(async function() {
                     try {
                         addToEventLog("Calculating pricing...");
+                        $("#admin-message").html('<div class="alert alert-info">Calculating pricing...</div>');
+                        
                         await contract.methods.calculatePricing().send({ from: userAccount });
+                        
                         addToEventLog("Pricing calculated!");
+                        $("#admin-message").html('<div class="alert alert-success">Pricing calculated successfully!</div>');
                         await updateGameState();
+                        
+                        setTimeout(() => $("#admin-message").html(''), 3000);
                     } catch (error) {
                         console.error("Error calculating pricing:", error);
+                        $("#admin-message").html(`<div class="alert alert-danger">Error: ${error.message}</div>`);
                         addToEventLog("Error calculating pricing. See console for details.");
                     }
                 });
@@ -1450,15 +1161,25 @@
                 $("#execute-iteration").click(async function() {
                     try {
                         addToEventLog("Executing iteration...");
+                        $("#admin-message").html('<div class="alert alert-info">Executing iteration...</div>');
+                        
                         await contract.methods.executeIteration().send({ from: userAccount });
+                        
                         addToEventLog("Iteration executed!");
+                        $("#admin-message").html('<div class="alert alert-success">Iteration executed successfully!</div>');
                         await updateGameState();
                         await checkUserStatus();
+                        
+                        setTimeout(() => $("#admin-message").html(''), 3000);
                     } catch (error) {
                         console.error("Error executing iteration:", error);
+                        $("#admin-message").html(`<div class="alert alert-danger">Error: ${error.message}</div>`);
                         addToEventLog("Error executing iteration. See console for details.");
                     }
                 });
+                
+                // Reset game button
+                $("#reset-game").click(resetGame);
                 
                 // Setup UI refresh timer
                 setInterval(async function() {
